@@ -1,0 +1,19 @@
+{
+  "name": "simple-mcp",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["mcp", "jira", "model-context-protocol"],
+  "author": "",
+  "license": "ISC",
+  "description": "MCP server for Jira integration",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "axios": "^1.13.2",
+    "dotenv": "^17.2.3"
+  }
+}
