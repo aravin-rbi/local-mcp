@@ -182,3 +182,4 @@ The server communicates via stdio (standard input/output) using JSON-RPC, so it'
 ---
 
 **Note:** Never commit your `.env` file or API tokens to version control. The `.env` file should be in `.gitignore`.
+
