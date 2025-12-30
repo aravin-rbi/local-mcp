@@ -22,14 +22,24 @@ async function jiraRequest(endpoint, params = {}) {
   }
 
   const url = endpoint.startsWith('http') ? endpoint : `${JIRA_URL}${endpoint}`;
-  const response = await axios.get(url, {
-    auth: {
-      username: JIRA_USER,
-      password: JIRA_API_TOKEN,
-    },
-    params,
-  });
-  return response.data;
+  try {
+    const response = await axios.get(url, {
+      auth: {
+        username: JIRA_USER,
+        password: JIRA_API_TOKEN,
+      },
+      params,
+    });
+    return response.data;
+  } catch (error) {
+    if (error.response) {
+      throw new Error(`Jira API error (${error.response.status}): ${error.response.data?.errorMessages?.join(', ') || error.response.statusText}`);
+    } else if (error.request) {
+      throw new Error('No response from Jira API. Please check your network connection and JIRA_URL.');
+    } else {
+      throw new Error(`Request setup error: ${error.message}`);
+    }
+  }
 }
 
 // Parse CLI arguments
@@ -41,7 +51,13 @@ function parseArgs() {
     const arg = args[i];
     if (arg.startsWith('--')) {
       const [key, value] = arg.substring(2).split('=');
-      parsed[key] = value || args[++i];
+      if (value) {
+        parsed[key] = value;
+      } else if (i + 1 < args.length && !args[i + 1].startsWith('--')) {
+        parsed[key] = args[++i];
+      } else {
+        parsed[key] = true; // Flag without value
+      }
     }
   }
   
@@ -105,7 +121,7 @@ async function handleCommand(command, args) {
             comments: comments.comments?.map(c => ({
               author: c.author.displayName,
               created: c.created,
-              body: c.body
+              body: typeof c.body === 'string' ? c.body : adfToPlainText(c.body)
             })) || []
           }
         };
@@ -144,7 +160,7 @@ async function handleCommand(command, args) {
             id: c.id,
             author: c.author.displayName,
             created: c.created,
-            body: c.body
+            body: typeof c.body === 'string' ? c.body : adfToPlainText(c.body)
           })) || []
         };
       }
@@ -236,11 +252,78 @@ async function handleCommand(command, args) {
   }
 }
 
+// Helper function to convert ADF (Atlassian Document Format) to plain text
+function adfToPlainText(adf) {
+  if (!adf) return '';
+  if (typeof adf === 'string') return adf;
+  if (typeof adf !== 'object') return String(adf);
+  
+  const lines = [];
+  
+  function extractText(node, isListItem = false) {
+    if (!node) return '';
+    
+    if (typeof node === 'string') return node;
+    
+    if (Array.isArray(node)) {
+      return node.map(n => extractText(n, isListItem)).join('');
+    }
+    
+    if (node.type === 'text' && node.text) {
+      return node.text;
+    }
+    
+    if (node.type === 'hardBreak') {
+      return '\n';
+    }
+    
+    if (node.type === 'paragraph') {
+      const text = node.content ? extractText(node.content) : '';
+      return text ? text + '\n' : '';
+    }
+    
+    if (node.type === 'heading') {
+      const text = node.content ? extractText(node.content) : '';
+      return text ? text + '\n' : '';
+    }
+    
+    if (node.type === 'listItem') {
+      const text = node.content ? extractText(node.content, true) : '';
+      return text ? '- ' + text.trim() + '\n' : '';
+    }
+    
+    if (node.type === 'bulletList' || node.type === 'orderedList') {
+      return node.content ? extractText(node.content) : '';
+    }
+    
+    if (node.content) {
+      return extractText(node.content, isListItem);
+    }
+    
+    return '';
+  }
+  
+  if (adf.content) {
+    const text = extractText(adf.content);
+    // Clean up multiple consecutive newlines but preserve paragraph structure
+    return text.replace(/\n{3,}/g, '\n\n').trim();
+  }
+  
+  return '';
+}
+
 // Helper functions to extract requirements and acceptance criteria from description
 function extractRequirements(description) {
   if (!description) return [];
   
-  const requirementsMatch = description.match(/Requirements?:?\s*(.*?)(?=\n\n|Acceptance|$)/is);
+  // Convert ADF to plain text if needed
+  const textDescription = typeof description === 'string' 
+    ? description 
+    : adfToPlainText(description);
+  
+  if (!textDescription) return [];
+  
+  const requirementsMatch = textDescription.match(/Requirements?:?\s*(.*?)(?=\n\n|Acceptance|$)/is);
   if (requirementsMatch) {
     return requirementsMatch[1]
       .split(/\n/)
@@ -253,7 +336,14 @@ function extractRequirements(description) {
 function extractAcceptanceCriteria(description) {
   if (!description) return [];
   
-  const criteriaMatch = description.match(/Acceptance Criteria:?\s*(.*?)(?=\n\n|Requirements|$)/is);
+  // Convert ADF to plain text if needed
+  const textDescription = typeof description === 'string' 
+    ? description 
+    : adfToPlainText(description);
+  
+  if (!textDescription) return [];
+  
+  const criteriaMatch = textDescription.match(/Acceptance Criteria:?\s*(.*?)(?=\n\n|Requirements|$)/is);
   if (criteriaMatch) {
     return criteriaMatch[1]
       .split(/\n/)
